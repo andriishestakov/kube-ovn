@@ -45,8 +45,10 @@ rules:
       - apps
     resources:
       - deployments
+      - daemonsets
     resourceNames:
       - ovn-central
+      - ovn-central-master
     verbs:
       - get
       - list

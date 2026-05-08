@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrii Shestakov <andrii.shestakov@gcore.com>
+Date: Wed, 07 May 2026 00:00:00 +0000
+Subject: [PATCH] ovsdb-tool: add --cid option for "create-cluster" command
+
+Allow callers to specify an explicit cluster ID when bootstrapping a new
+single-node cluster from an existing standalone database.  This is needed
+for the "last-survivor" recovery path: after a quorum loss the surviving
+node converts its clustered DB to standalone and re-creates a single-node
+cluster.  Preserving the original cluster ID lets returning peers rejoin
+via "rejoin-cluster" (which validates cid from the .hdr file) without
+any additional manual intervention.
+
+Generated against ovs branch-3.5 @ 20815be after applying the preceding
+patches in the build sequence (last is 53b9837f, ovsdb-tool db-raft-header
+/ rejoin-cluster, which shifts ovsdb-tool.c line numbers).
+
+Signed-off-by: Andrii Shestakov <andrii.shestakov@gcore.com>
+---
+ ovsdb/ovsdb-tool.c | 5 +++--
+ ovsdb/raft.c       | 4 ++--
+ ovsdb/raft.h       | 3 ++-
+ 3 files changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/ovsdb/ovsdb-tool.c b/ovsdb/ovsdb-tool.c
+index 9ec2c5d..a10ec1b 100644
+--- a/ovsdb/ovsdb-tool.c
++++ b/ovsdb/ovsdb-tool.c
+@@ -178,7 +178,7 @@ usage(void)
+     printf("%s: Open vSwitch database management utility\n"
+            "usage: %s [OPTIONS] COMMAND [ARG...]\n"
+            "  create [DB [SCHEMA]]    create DB with the given SCHEMA\n"
+-           "  [--election-timer=ms] create-cluster DB CONTENTS LOCAL\n"
++           "  [--cid=UUID] [--election-timer=ms] create-cluster DB CONTENTS LOCAL\n"
+            "    create clustered DB with given CONTENTS and LOCAL address\n"
+            "  [--cid=UUID] [--sid=UUID] join-cluster DB NAME LOCAL REMOTE...\n"
+            "    join clustered DB with given NAME and LOCAL and REMOTE addrs\n"
+@@ -328,7 +328,8 @@ do_create_cluster(struct ovs_cmdl_context *ctx)
+     /* Create database file. */
+     struct json *snapshot = json_array_create_2(schema_json, data);
+     check_ovsdb_error(raft_create_cluster(db_file_name, schema->name,
+-                                          local, snapshot, election_timer));
++                                          local, snapshot, election_timer,
++                                          uuid_is_zero(&cid) ? NULL : &cid));
+     ovsdb_schema_destroy(schema);
+     json_destroy(snapshot);
+ }
+diff --git a/ovsdb/raft.c b/ovsdb/raft.c
+index 4b0cb32..3cdb467 100644
+--- a/ovsdb/raft.c
++++ b/ovsdb/raft.c
+@@ -484,7 +484,7 @@ raft_alloc(void)
+ struct ovsdb_error * OVS_WARN_UNUSED_RESULT
+ raft_create_cluster(const char *file_name, const char *name,
+                     const char *local_address, const struct json *data,
+-                    const uint64_t election_timer)
++                    const uint64_t election_timer, const struct uuid *cid)
+ {
+     /* Parse and verify validity of the local address. */
+     struct ovsdb_error *error = raft_address_validate(local_address);
+@@ -513,7 +513,7 @@ raft_create_cluster(const char *file_name, const char *name,
+     uint64_t index = 1;
+     struct raft_header h = {
+         .sid = uuid_random(),
+-        .cid = uuid_random(),
++        .cid = cid ? *cid : uuid_random(),
+         .name = xstrdup(name),
+         .local_address = xstrdup(local_address),
+         .joining = false,
+diff --git a/ovsdb/raft.h b/ovsdb/raft.h
+index 1e582b9..00fcbcd 100644
+--- a/ovsdb/raft.h
++++ b/ovsdb/raft.h
+@@ -82,7 +82,8 @@ struct ovsdb_error *raft_create_cluster(const char *file_name,
+                                         const char *name,
+                                         const char *local_address,
+                                         const struct json *snapshot,
+-                                        const uint64_t election_timer)
++                                        const uint64_t election_timer,
++                                        const struct uuid *cid)
+     OVS_WARN_UNUSED_RESULT;
+ struct ovsdb_error *raft_join_cluster(const char *file_name, const char *name,
+                                       const char *local_address,
+--
+2.43.0

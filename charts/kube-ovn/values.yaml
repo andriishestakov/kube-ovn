@@ -20,6 +20,8 @@ image:
 namespace: kube-system
 MASTER_NODES: ""
 MASTER_NODES_LABEL: "kube-ovn/role=master"
+DYNAMIC_PEERS: false
+DYNAMIC_JOIN_TIMEOUT: 30
 
 networking:
   # NET_STACK could be dual_stack, ipv4, ipv6

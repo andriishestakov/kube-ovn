@@ -6524,6 +6524,16 @@ rules:
       - pods
     verbs:
       - get
+      - list
+      - patch
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
       - patch
   - apiGroups:
       - ""
@@ -6531,6 +6541,12 @@ rules:
       - services
     verbs:
       - get
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - list
   - apiGroups:
       - discovery.k8s.io
     resources:

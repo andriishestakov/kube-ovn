@@ -45,7 +45,15 @@ while true; do
   sleep 3
 done
 
-kubectl -n $POD_NAMESPACE rollout status deploy ovn-central --timeout=120s
+# In dynamic-peers mode ovn-central is a DaemonSet (ovn-central-master), in
+# static mode it's a Deployment (ovn-central). Probe both -- whichever exists.
+if kubectl -n "$POD_NAMESPACE" get deploy ovn-central >/dev/null 2>&1; then
+  kubectl -n "$POD_NAMESPACE" rollout status deploy ovn-central --timeout=120s
+elif kubectl -n "$POD_NAMESPACE" get ds ovn-central-master >/dev/null 2>&1; then
+  kubectl -n "$POD_NAMESPACE" rollout status ds ovn-central-master --timeout=120s
+else
+  echo "warning: neither deploy/ovn-central nor ds/ovn-central-master found; skipping rollout wait"
+fi
 
 if [ $UPDATE_STRATEGY = OnDelete ]; then
   dsChartVer=`kubectl get ds -n $POD_NAMESPACE ovs-ovn -o jsonpath={.spec.template.metadata.annotations.chart-version}`

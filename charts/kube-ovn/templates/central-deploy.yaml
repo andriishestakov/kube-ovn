@@ -1,18 +1,32 @@
+{{- if .Values.DYNAMIC_PEERS }}
+kind: DaemonSet
+{{- else }}
 kind: Deployment
+{{- end }}
 apiVersion: apps/v1
 metadata:
-  name: ovn-central
+  # Different name per kind so `helm upgrade` cleanly deletes the old workload
+  # when toggling DYNAMIC_PEERS (helm cannot patch a Deployment into a DaemonSet
+  # under the same metadata.name -- it errors with "cannot change object Kind").
+  name: {{ if .Values.DYNAMIC_PEERS }}ovn-central-master{{ else }}ovn-central{{ end }}
   namespace: {{ .Values.namespace }}
   annotations:
     kubernetes.io/description: |
       OVN components: northd, nb and sb.
 spec:
+  {{- if .Values.DYNAMIC_PEERS }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  {{- else }}
   replicas: {{ include "kubeovn.nodeCount" . }}
   strategy:
     rollingUpdate:
       maxSurge: 0
       maxUnavailable: 1
     type: RollingUpdate
+  {{- end }}
   selector:
     matchLabels:
       app: ovn-central
@@ -86,6 +100,12 @@ spec:
               value: "{{ .Values.networking.ENABLE_SSL }}"
             - name: NODE_IPS
               value: "{{ .Values.MASTER_NODES | default (include "kubeovn.nodeIPs" .) }}"
+            - name: DYNAMIC_PEERS
+              value: "{{ .Values.DYNAMIC_PEERS | default false }}"
+            - name: DYNAMIC_JOIN_TIMEOUT
+              value: "{{ .Values.DYNAMIC_JOIN_TIMEOUT | default 30 }}"
+            - name: MASTER_NODES_LABEL
+              value: "{{ .Values.MASTER_NODES_LABEL }}"
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -136,6 +156,23 @@ spec:
               readOnly: true
             - mountPath: /var/run/tls
               name: kube-ovn-tls
+          {{- if .Values.DYNAMIC_PEERS }}
+          # Readiness reflects "fully working cluster member": ovsdb is
+          # cluster_member with a known leader for both NB and SB. Used
+          # by Service endpoints AND by peer pods' recover() decisions
+          # (anyPeerActiveAndReady) to distinguish a real active peer
+          # from a stale `active` annotation. No liveness probe -- the
+          # ovn-central-controller binary recovers in-process; killing
+          # the container only makes it slower.
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - /kube-ovn/ovn-central-controller-readiness.sh
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 3
+          {{- else }}
           readinessProbe:
             exec:
               command:
@@ -152,6 +189,7 @@ spec:
             periodSeconds: 15
             failureThreshold: 5
             timeoutSeconds: 45
+          {{- end }}
       nodeSelector:
         kubernetes.io/os: "linux"
       volumes:
